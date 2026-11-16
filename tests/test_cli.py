@@ -104,3 +104,43 @@ def test_main_reports_missing_links_file(sd, capsys):
         sd.main(["--file", "does-not-exist.txt"])
     assert exit_info.value.code == 2
     assert "could not read links file" in capsys.readouterr().err
+
+
+def test_interactive_mode_keeps_asking_until_empty_line(sd, monkeypatch, capsys):
+    calls = []
+
+    def fake_download(job, formats, output_dir):
+        calls.append(job["info"]["doc_id"])
+        if job["info"]["doc_id"] == "222":
+            raise RuntimeError("boom")
+        return {}
+
+    monkeypatch.setattr(sd, "download_document", fake_download)
+    answers = iter([A, "not-a-link", B, C, ""])
+    monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
+
+    # A failed or invalid link does not end the session, and quitting is exit code 0.
+    assert sd.main([]) is None
+    assert calls == ["111", "222", "333"]
+    output = capsys.readouterr().out
+    assert "Not a valid Scribd document URL" in output
+    assert "Export failed: boom" in output
+
+
+@pytest.mark.parametrize("ending", ["q", EOFError, KeyboardInterrupt])
+def test_interactive_mode_quits_on_q_or_end_of_input(sd, monkeypatch, ending):
+    calls = []
+    monkeypatch.setattr(
+        sd, "download_document", lambda job, formats, output_dir: calls.append(job)
+    )
+    answers = iter([A, ending])
+
+    def fake_input(prompt):
+        answer = next(answers)
+        if isinstance(answer, str):
+            return answer
+        raise answer
+
+    monkeypatch.setattr("builtins.input", fake_input)
+    assert sd.main([]) is None
+    assert len(calls) == 1

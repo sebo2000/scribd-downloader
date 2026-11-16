@@ -2883,7 +2883,8 @@ def build_arg_parser():
         "urls",
         nargs="*",
         metavar="URL",
-        help="Scribd document link(s). If none are given you will be prompted.",
+        help="Scribd document link(s). If none are given you are asked for links, "
+        "one after another, until you press Enter on an empty line.",
     )
     parser.add_argument(
         "-f",
@@ -3070,25 +3071,16 @@ def print_invalid_url_help(invalid_urls):
     )
 
 
-def main(argv=None):
-    """Run the exporter from the command line or interactively."""
-    parser = build_arg_parser()
-    args = parser.parse_args(argv)
+QUIT_WORDS = {"q", "quit", "exit"}
 
-    if "docx" in args.formats:
-        try:
-            import docx  # noqa: F401
-        except ImportError:
-            parser.error(
-                "DOCX export needs python-docx. Install it with: "
-                "pip install -r requirements.txt"
-            )
 
-    try:
-        urls = collect_urls(args)
-    except OSError as error:
-        parser.error(f"could not read links file: {error}")
+def run_downloads(urls, formats, output_dir):
+    """
+    Download every valid link in ``urls``.
 
+    Returns:
+        True when all links were valid and every download succeeded.
+    """
     jobs, invalid_urls = plan_downloads(urls)
 
     if invalid_urls:
@@ -3097,9 +3089,9 @@ def main(argv=None):
     if not jobs:
         if not invalid_urls:
             print("Error: Please provide a valid Scribd document URL")
-        raise SystemExit(1)
+        return False
 
-    os.makedirs(args.output_dir, exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
 
     failures = []
     successes = []
@@ -3108,7 +3100,7 @@ def main(argv=None):
         if len(jobs) > 1:
             print(f"\n=== Document {number}/{len(jobs)}: {job['base_name']} ===")
         try:
-            download_document(job, args.formats, args.output_dir)
+            download_document(job, formats, output_dir)
             successes.append(job)
         except (
             RuntimeError,
@@ -3130,7 +3122,57 @@ def main(argv=None):
             first_line = str(error).splitlines()[0] if str(error) else type(error).__name__
             print(f"  FAILED {job['base_name']}: {first_line}")
 
-    if failures or invalid_urls:
+    return not failures and not invalid_urls
+
+
+def run_interactive(args, input_func=None):
+    """Keep asking for links and downloading them until the user quits."""
+    print("Paste a Scribd link and press Enter. Press Enter on an empty line to quit.")
+
+    while True:
+        try:
+            urls = collect_urls(args, input_func=input_func or input)
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+
+        if not urls or any(url.lower() in QUIT_WORDS for url in urls):
+            break
+
+        try:
+            run_downloads(urls, args.formats, args.output_dir)
+        except KeyboardInterrupt:
+            print("\nDownload cancelled.")
+
+        print()
+
+    print("Bye.")
+
+
+def main(argv=None):
+    """Run the exporter from the command line or interactively."""
+    parser = build_arg_parser()
+    args = parser.parse_args(argv)
+
+    if "docx" in args.formats:
+        try:
+            import docx  # noqa: F401
+        except ImportError:
+            parser.error(
+                "DOCX export needs python-docx. Install it with: "
+                "pip install -r requirements.txt"
+            )
+
+    if not args.urls and not args.file:
+        run_interactive(args)
+        return
+
+    try:
+        urls = collect_urls(args)
+    except OSError as error:
+        parser.error(f"could not read links file: {error}")
+
+    if not run_downloads(urls, args.formats, args.output_dir):
         raise SystemExit(1)
 
 

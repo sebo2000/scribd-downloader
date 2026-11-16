@@ -34,6 +34,36 @@
 
 ---
 
+> **About this repository.** This is a standalone copy of [themrsami/scribd-downloader](https://github.com/themrsami/scribd-downloader) by Usama Nazir. The downloader and the Chrome extension are the original author's work. This copy adds a one-command launcher (`scribd-download`) and an interactive mode that keeps asking for links until you quit. See [Credits](#credits).
+
+## Quick start (macOS / Linux)
+
+You need [Google Chrome](https://www.google.com/chrome/), Python 3.10 or newer, and git.
+
+```bash
+git clone https://github.com/sebo2000/scribd-downloader.git
+cd scribd-downloader
+./scribd-download
+```
+
+The first run creates a private Python environment in `.venv` and installs the dependencies, which takes a minute. After that:
+
+1. Paste a Scribd link and press Enter. The document is saved as a PDF in `~/Downloads`.
+2. Paste the next link, or press Enter on an empty line to quit.
+
+To download without the prompt, pass the links and options directly:
+
+```bash
+./scribd-download "https://www.scribd.com/document/123456789/Title"
+./scribd-download URL1 URL2 --format pdf,docx -o ~/Documents/scribd
+./scribd-download --file links.txt --format all
+./scribd-download --help
+```
+
+On Windows, or to run the Python program yourself, follow [Installation](#installation) and [Usage](#usage). More about the launcher is in [Launcher script](#launcher-script-macos--linux).
+
+---
+
 ## Two ways to use it
 
 Both do the same job and give the same files: PDF, Word (DOCX) and Text, single or bulk downloads, any Scribd link, no login.
@@ -119,6 +149,18 @@ The rest of this page documents the Python program.
    pip install -r requirements.txt
    ```
 
+### Launcher script (macOS / Linux)
+
+`scribd-download` does the setup for you. On first run it creates a private virtual environment in `.venv` and installs the dependencies, then starts the downloader. It accepts the same options as `scribd-downloader.py`.
+
+```bash
+./scribd-download                         # asks for links until you press Enter on an empty line
+./scribd-download URL --format pdf,docx
+ln -s "$PWD/scribd-download" ~/.local/bin/scribd-download   # optional: run it from anywhere
+```
+
+Files go to `~/Downloads` unless you pass `-o`; change that default with `SCRIBD_DOWNLOAD_DIR`. Run `./scribd-download --setup` to rebuild the environment, and set `SCRIBD_PYTHON` to choose which Python 3.10+ builds it.
+
 ---
 
 ## Usage
@@ -158,7 +200,7 @@ The rest of this page documents the Python program.
 
 ### Command-line options
 
-Running without arguments works exactly as before (it asks for a link). You can also pass everything on the command line:
+Running without arguments asks for a link, downloads it, then asks for the next one. Press Enter on an empty line (or type `q`, or press Ctrl+C) to quit. A failed or invalid link does not end the session. You can also pass everything on the command line:
 
 ```bash
 # One document
@@ -177,7 +219,7 @@ python scribd-downloader.py --file links.txt --format all
 
 | Option | Description |
 |--------|-------------|
-| `URL ...` | One or more Scribd links. If none are given (and no `--file`), you are prompted. |
+| `URL ...` | One or more Scribd links. If none are given (and no `--file`), you are asked for links one after another until you quit. |
 | `-f`, `--file PATH` | Text file with links, one per line. `-` reads from standard input. Can be repeated. |
 | `--format FORMATS` | Comma-separated: `pdf`, `txt`, `docx`, or `all`. Default: `pdf`. |
 | `-o`, `--output-dir DIR` | Folder for the output files (created if missing). Default: current folder. |
@@ -383,7 +425,7 @@ On Windows PowerShell, use `$env:SCRIBD_E2E="1"; python -m pytest -m e2e -v`. To
 | Test file | Tests | What it checks |
 |-----------|------:|----------------|
 | `tests/test_urls.py` | 36 | Accepts `www`, locale (`de.`/`es.`/`fr.`), no-`www`, no-scheme, `http`, uppercase, no-title, `/doc/` and `/embeds/` links. Rejects lookalike domains (`notscribd.com`, `evil-scribd.com`, `scribd.com.evil.com`) and non-document pages. Keeps and URL-encodes `secret_password`, redacts it in output. Safe filenames. |
-| `tests/test_cli.py` | 10 | Format parsing, default arguments match the old behaviour, links from arguments / files / stdin / prompt, duplicate removal, name clashes, bulk run continues after a failure with the right summary and exit code. |
+| `tests/test_cli.py` | 14 | Format parsing, default arguments match the old behaviour, links from arguments / files / stdin / prompt, the prompt asks again after each download until an empty line / `q` / end of input, duplicate removal, name clashes, bulk run continues after a failure with the right summary and exit code. |
 | `tests/test_diagnostics.py` | 13 | Waits until the page count is stable, survives script errors while loading, times out cleanly. Recognises Cloudflare checks, blocked access, missing documents (Scribd's real "Document Not Found" text), bad `secret_password`, private documents and login walls. Saves debug screenshot + HTML and never prints the password. |
 | `tests/test_layout.py` | 34 | Rebuilding text from positioned HTML: joining runs, spaces vs punctuation, non-breaking spaces, bullets drawn in tiny fonts or as tiny sprite images, column gaps to tabs, wrapped lines, hyphenation, list items, bold lead-ins, headings, centring, styles, reading order of text and images, colour parsing. |
 | `tests/test_export_files.py` | 6 | TXT output exactly. DOCX keeps fonts, sizes, bold/italic, colours, centring, right-aligned tab stops, enlarged bullets, one section per page size (portrait/landscape), cropped sprite images. DOCX is still written when images fail to download or are invalid. |
@@ -427,6 +469,16 @@ If you find this tool useful, consider supporting its development:
     <img src="assets/buymeacoffee.svg" alt="Buy Me A Coffee" width="40" height="40">
   </a>
 </p>
+
+---
+
+## Credits
+
+- **[Usama Nazir](https://github.com/themrsami)** wrote the original project, [themrsami/scribd-downloader](https://github.com/themrsami/scribd-downloader): the Python downloader, the Chrome extension and this documentation. If the tool is useful to you, please star and support the original repository.
+- **[rust-cpp](https://github.com/rust-cpp)** and **[HBaz92](https://github.com/HBaz92)** contributed fixes and features to the original project.
+- **[sebo2000](https://github.com/sebo2000)** added the `scribd-download` launcher script and the interactive prompt loop in this copy.
+
+The full commit history of the original project is kept in this repository, so every change stays attributed to its author. It builds on [Selenium](https://www.selenium.dev/), [pypdf](https://github.com/py-pdf/pypdf), [python-docx](https://github.com/python-openxml/python-docx) and [Pillow](https://python-pillow.org/).
 
 ---
 

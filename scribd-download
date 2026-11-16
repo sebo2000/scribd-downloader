@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+#
+# scribd-download - launcher for scribd-downloader.py
+#
+# Runs the downloader from anywhere (symlink this file into your PATH) and
+# takes care of the setup: on first run it creates a private virtual
+# environment next to the script and installs requirements.txt into it. The
+# environment is refreshed automatically when requirements.txt changes.
+#
+# Usage:
+#   scribd-download                      ask for links one after another and
+#                                        save each as a PDF (empty line quits)
+#   scribd-download URL [URL ...]        same options as scribd-downloader.py
+#   scribd-download --file links.txt --format pdf,docx -o some/folder
+#   scribd-download --setup              (re)build the environment and exit
+#   scribd-download --help
+#
+# Environment:
+#   SCRIBD_DOWNLOAD_DIR   default output folder (default: ~/Downloads);
+#                         used whenever -o/--output-dir is not given
+#   SCRIBD_PYTHON         Python 3.10+ interpreter used to build the environment
+#   SCRIBD_VENV_DIR       where the environment lives (default: <repo>/.venv)
+#
+set -euo pipefail
+
+die() {
+  echo "Error: $*" >&2
+  exit 1
+}
+
+# Resolve the directory containing this script, even when invoked via a symlink.
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do
+  DIR="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
+
+MAIN="$SCRIPT_DIR/scribd-downloader.py"
+REQUIREMENTS="$SCRIPT_DIR/requirements.txt"
+VENV_DIR="${SCRIBD_VENV_DIR:-$SCRIPT_DIR/.venv}"
+VENV_PYTHON="$VENV_DIR/bin/python"
+STAMP="$VENV_DIR/.requirements-installed"
+DEFAULT_OUT="${SCRIBD_DOWNLOAD_DIR:-$HOME/Downloads}"
+
+[ -f "$MAIN" ] || die "cannot find $MAIN"
+[ -f "$REQUIREMENTS" ] || die "cannot find $REQUIREMENTS"
+
+is_supported_python() {
+  "$1" -c 'import sys; sys.exit(sys.version_info < (3, 10))' >/dev/null 2>&1
+}
+
+# Print the first Python 3.10+ interpreter found.
+find_python() {
+  local candidate
+  if [ -n "${SCRIBD_PYTHON:-}" ]; then
+    is_supported_python "$SCRIBD_PYTHON" ||
+      die "SCRIBD_PYTHON=$SCRIBD_PYTHON is not a working Python 3.10+ interpreter"
+    echo "$SCRIBD_PYTHON"
+    return
+  fi
+  for candidate in python3 python3.13 python3.12 python3.11 python3.10 python; do
+    if command -v "$candidate" >/dev/null 2>&1 && is_supported_python "$candidate"; then
+      echo "$candidate"
+      return
+    fi
+  done
+  die "Python 3.10 or newer not found. Install it, or point SCRIBD_PYTHON at one."
+}
+
+# Create the virtual environment and install dependencies when needed.
+# $1 = "force" rebuilds it from scratch.
+ensure_environment() {
+  local python
+
+  if [ "${1:-}" = "force" ] || ! is_supported_python "$VENV_PYTHON"; then
+    python="$(find_python)"
+    echo "Creating Python environment in $VENV_DIR ($("$python" --version 2>&1))..." >&2
+    rm -rf "$VENV_DIR"
+    "$python" -m venv "$VENV_DIR" || die "could not create a virtual environment in $VENV_DIR"
+  fi
+
+  if ! cmp -s "$REQUIREMENTS" "$STAMP"; then
+    echo "Installing dependencies (one-time setup)..." >&2
+    if ! "$VENV_PYTHON" -m pip install --quiet --disable-pip-version-check \
+      -r "$REQUIREMENTS" >&2; then
+      die "installing dependencies failed. Fix the problem above and run: $(basename "$0") --setup"
+    fi
+    cp "$REQUIREMENTS" "$STAMP"
+    echo "Setup complete." >&2
+    echo >&2
+  fi
+}
+
+if [ "${1:-}" = "--setup" ]; then
+  ensure_environment force
+  echo "Environment ready: $VENV_DIR" >&2
+  exit 0
+fi
+
+# Does the command line already choose an output folder, or only ask for help?
+has_output_dir=0
+wants_help=0
+for arg in "$@"; do
+  case "$arg" in
+    -o | -o?* | --output-dir | --output-dir=*) has_output_dir=1 ;;
+    -h | --help) wants_help=1 ;;
+  esac
+done
+
+ensure_environment
+
+if [ "$wants_help" -eq 1 ]; then
+  "$VENV_PYTHON" "$MAIN" "$@"
+  cat <<EOF
+
+wrapper (scribd-download):
+  Files are saved to $DEFAULT_OUT unless -o is given
+  (change the default with SCRIBD_DOWNLOAD_DIR).
+  --setup    rebuild the Python environment in $VENV_DIR and exit
+EOF
+  exit 0
+fi
+
+if [ "$has_output_dir" -eq 0 ]; then
+  echo "Output folder: $DEFAULT_OUT"
+  set -- "$@" --output-dir "$DEFAULT_OUT"
+fi
+
+exec "$VENV_PYTHON" "$MAIN" "$@"
